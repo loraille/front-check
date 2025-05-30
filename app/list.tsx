@@ -29,7 +29,9 @@ type ListItem = {
     type: 'text' | 'toggle';
   }[];
 };
+
 type Item = {
+  _id: string;
   item: string;
   value: string;
   type: 'text' | 'toggle';
@@ -40,6 +42,8 @@ export default function List() {
   const colors = useThemeColors();
   const url = 'http://192.168.1.183:3000';
   const [listDetails, setListDetails] = useState<ListItem | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [editingItemId, setEditingItemId] = useState<string | null>(null);
   const [editedItemName, setEditedItemName] = useState<string>('');
   const [editedItemValue, setEditedItemValue] = useState<string>('');
@@ -47,22 +51,39 @@ export default function List() {
   const [modalVisible, setModalVisible] = useState(false);
   const [newItemName, setNewItemName] = useState('');
   const [newItemType, setNewItemType] = useState<'text' | 'toggle'>('toggle');
-  const [isSoundOn, setIsSoundOn] = useState(true); // État du son
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [isSoundOn, setIsSoundOn] = useState(true);
 
-  // Fonction pour lire un fichier audio
-  const playSound = async (soundFile: string) => {
-    if (!isSoundOn) return; // Ne joue aucun son si le son est désactivé
+  const fetchListDetails = useCallback(async () => {
+    try {
+      setIsLoading(true);
+      setError(null);
+      const userSession = await AsyncStorage.getItem('userSession');
+      const { token } = JSON.parse(userSession || '{}');
+      const response = await fetch(`${url}/list/${id}/${userId}`, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      const data = await response.json();
+      if (!data.list) {
+        throw new Error('No list data received');
+      }
+      const sortedList = { ...data.list };
+      sortedList.items.sort((a: Item, b: Item) => a.item.localeCompare(b.item));
+      setListDetails(sortedList);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Une erreur est survenue');
+    } finally {
+      setIsLoading(false);
+    }
+  }, [id, userId]);
 
-    const soundPath =
-      soundFile === 'piece'
-        ? require('@/assets/sounds/piece.wav')
-        : require('@/assets/sounds/tuyau.wav');
-
-    const { sound } = await Audio.Sound.createAsync(soundPath);
-    await sound.playAsync();
-  };
+  useEffect(() => {
+    fetchListDetails();
+  }, [fetchListDetails]);
 
   const showAddModal = () => {
     setModalVisible(true);
@@ -76,7 +97,7 @@ export default function List() {
     setNewItemType('toggle');
   };
 
-  const handleAddItem = () => {
+  const handleAddItem = async () => {
     if (!newItemName.trim()) {
       Alert.alert('Erreur', 'Le nom de l\'élément ne peut pas être vide.');
       return;
@@ -97,113 +118,52 @@ export default function List() {
       return;
     }
 
-    // Définir la valeur initiale en fonction du type
     const itemValue = newItemType === 'toggle' ? 'false' : 'à définir';
-
-    console.log('Ajout d\'un nouvel item:', {
-      name: newItemName.trim(),
+    const newItem = {
+      _id: Date.now().toString(), // ID temporaire
+      item: newItemName.trim(),
       value: itemValue,
-      type: newItemType,
-      listName: listDetails.name,
-      userId: userId
-    });
+      type: newItemType
+    };
 
-    AsyncStorage.getItem('userSession')
-      .then(userSession => {
-        const { token } = JSON.parse(userSession || '{}');
-        console.log('Token récupéré:', token);
-        
-        const requestBody = {
-          item: newItemName.trim(),
-          value: itemValue,
-          type: newItemType
-        };
-        console.log('Corps de la requête:', requestBody);
-
-        return fetch(`${url}/list/add/item/${listDetails.name}/${userId}`, {
-          method: 'POST',
-          headers: { 
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
-          },
-          body: JSON.stringify(requestBody),
-        });
-      })
-      .then(async (response) => {
-        console.log('Réponse du serveur:', {
-          status: response.status,
-          statusText: response.statusText
-        });
-
-        if (!response.ok) {
-          const errorText = await response.text();
-          console.error('Erreur serveur:', errorText);
-          throw new Error(`Erreur HTTP! Statut: ${response.status}, Message: ${errorText}`);
-        }
-        return response.json();
-      })
-      .then((data) => {
-        console.log('Données reçues:', data);
-        if (data.result) {
-          // Rafraîchir la liste après l'ajout réussi
-          fetchListDetails();
-          hideAddModal();
-        } else {
-          console.error('L\'ajout a échoué côté serveur:', data);
-          alert('L\'ajout a échoué. Veuillez réessayer.');
-        }
-      })
-      .catch((error) => {
-        console.error("Erreur détaillée lors de l'ajout de l'item :", error);
-        alert("Erreur lors de l'ajout de l'élément. Veuillez réessayer.");
+    try {
+      const userSession = await AsyncStorage.getItem('userSession');
+      const { token } = JSON.parse(userSession || '{}');
+      const response = await fetch(`${url}/list/add/item/${listDetails.name}/${userId}`, {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          item: newItem.item.toLowerCase(),
+          value: newItem.value,
+          type: newItem.type
+        }),
       });
+
+      if (!response.ok) {
+        throw new Error(`Erreur HTTP! Statut: ${response.status}`);
+      }
+
+      const data = await response.json();
+      if (!data.result) {
+        throw new Error('L\'ajout a échoué côté serveur');
+      }
+
+      // Mise à jour optimiste
+      setListDetails(prev => {
+        if (!prev) return null;
+        const updatedItems = [...prev.items, newItem].sort((a, b) => a.item.localeCompare(b.item));
+        return { ...prev, items: updatedItems };
+      });
+
+      hideAddModal();
+    } catch (error) {
+      Alert.alert('Erreur', 'Une erreur est survenue lors de l\'ajout de l\'élément.');
+      console.error(error);
+    }
   };
-
-  const fetchListDetails = useCallback(() => {
-    setIsLoading(true);
-    setError(null);
-    console.log('Fetching list details for:', { id, userId });
-    AsyncStorage.getItem('userSession')
-      .then(userSession => {
-        const { token } = JSON.parse(userSession || '{}');
-        console.log('Calling API with URL:', `${url}/list/${id}/${userId}`);
-        console.log('Using token:', token);
-        return fetch(`${url}/list/${id}/${userId}`, {
-          headers: {
-            'Authorization': `Bearer ${token}`
-          }
-        });
-      })
-      .then((response) => {
-        console.log('Response status:', response.status);
-        if (!response.ok) {
-          throw new Error(`HTTP error! status: ${response.status}`);
-        }
-        return response.json();
-      })
-      .then((data: { list: ListItem }) => {
-        console.log('Response data:', data);
-        if (data.list) {
-          const sortedList = { ...data.list };
-          sortedList.items.sort((a, b) => a.item.localeCompare(b.item));
-          setListDetails(sortedList);
-        } else {
-          console.error('No list data received');
-          setListDetails(null);
-        }
-      })
-      .catch((error) => {
-        console.error(
-          'Erreur détaillée lors de la récupération des détails de la liste :',
-          error
-        );
-        setError('Impossible de charger la liste. Veuillez réessayer.');
-        setListDetails(null);
-      })
-      .finally(() => {
-        setIsLoading(false);
-      });
-  }, [id, userId, url]);
 
   const navigateToLists = (userId: string) => {
     router.push({
@@ -216,11 +176,7 @@ export default function List() {
     navigateToLists(userId);
   };
 
-  useEffect(() => {
-    fetchListDetails();
-  }, [id, fetchListDetails]);
-
-  const handleEditItem = (
+  const handleEditItem = async (
     itemName: string,
     newName: string,
     newValue: string
@@ -248,120 +204,94 @@ export default function List() {
       }
     }
 
-    AsyncStorage.getItem('userSession')
-      .then(userSession => {
-        const { token } = JSON.parse(userSession || '{}');
-        return fetch(`${url}/list/item/update/${listDetails.name}/${userId}/${currentItem.item}`, {
-          method: 'PUT',
-          headers: { 
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
-          },
-          body: JSON.stringify({
-            item: updatedName,
-            value: updatedValue || currentItem.value
-          }),
-        });
-      })
-      .then((response) => {
-        if (!response.ok) {
-          throw new Error(`Erreur HTTP! Statut: ${response.status}`);
-        }
-        return response.json();
-      })
-      .then((data: { result: boolean }) => {
-        if (data.result) {
-          setListDetails((prev) => {
-            if (!prev) return prev;
-            const updatedItems = [...prev.items];
-            const itemIndex = updatedItems.findIndex(item => item.item === itemName);
-            if (itemIndex !== -1) {
-              updatedItems[itemIndex] = {
-                ...updatedItems[itemIndex],
-                item: updatedName,
-                value: updatedValue || currentItem.value
-              };
-            }
-            return {
-              ...prev,
-              items: updatedItems
-            };
-          });
-          setEditingItemId(null);
-        } else {
-          console.error('La mise à jour a échoué côté serveur.');
-        }
-      })
-      .catch((error) => {
-        console.error("Erreur lors de la modification de l'item :", error);
+    try {
+      const userSession = await AsyncStorage.getItem('userSession');
+      const { token } = JSON.parse(userSession || '{}');
+      const response = await fetch(`${url}/list/item/update/${listDetails.name}/${userId}/${currentItem.item}`, {
+        method: 'PUT',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          item: updatedName,
+          value: updatedValue || currentItem.value,
+          type: currentItem.type
+        }),
       });
+
+      if (!response.ok) {
+        throw new Error(`Erreur HTTP! Statut: ${response.status}`);
+      }
+
+      const data = await response.json();
+      if (!data.result) {
+        throw new Error('La mise à jour a échoué côté serveur');
+      }
+
+      // Mise à jour optimiste
+      setListDetails(prev => {
+        if (!prev) return null;
+        const updatedItems = prev.items.map(item => 
+          item.item === itemName 
+            ? { ...item, item: updatedName, value: updatedValue || item.value }
+            : item
+        ).sort((a, b) => a.item.localeCompare(b.item));
+        return { ...prev, items: updatedItems };
+      });
+
+      setEditingItemId(null);
+    } catch (error) {
+      Alert.alert('Erreur', 'Une erreur est survenue lors de la modification de l\'élément.');
+      console.error(error);
+    }
   };
 
-  const handleDeleteItem = (itemName: string) => {
+  const handleDeleteItem = async (itemName: string) => {
     if (!listDetails) return;
 
-    // Trouver l'item actuel par son nom
     const currentItem = listDetails.items.find(item => item.item === itemName);
     if (!currentItem) {
       console.error('Item not found:', itemName);
       return;
     }
 
-    // Mise à jour optimiste de l'interface
-    setListDetails((prev) => {
-      if (!prev) return prev;
-      return {
-        ...prev,
-        items: prev.items.filter(item => item.item !== itemName)
-      };
-    });
-
-    AsyncStorage.getItem('userSession')
-      .then(userSession => {
-        const { token } = JSON.parse(userSession || '{}');
-        return fetch(`${url}/list/item/delete/${listDetails.name}/${userId}/${currentItem.item}`, {
-          method: 'DELETE',
-          headers: {
-            'Authorization': `Bearer ${token}`
-          }
-        });
-      })
-      .then((response) => {
-        if (!response.ok) {
-          throw new Error(`Erreur HTTP! Statut: ${response.status}`);
+    try {
+      const userSession = await AsyncStorage.getItem('userSession');
+      const { token } = JSON.parse(userSession || '{}');
+      const response = await fetch(`${url}/list/item/delete/${listDetails.name}/${userId}/${currentItem.item}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${token}`
         }
-        return response.json();
-      })
-      .then((data: { result: boolean }) => {
-        if (!data.result) {
-          // Si la suppression a échoué, restaurer l'état précédent
-          setListDetails((prev) => {
-            if (!prev) return prev;
-            return {
-              ...prev,
-              items: [...prev.items, currentItem]
-            };
-          });
-          console.error('La suppression a échoué côté serveur.');
-        }
-      })
-      .catch((error) => {
-        // En cas d'erreur, restaurer l'état précédent
-        setListDetails((prev) => {
-          if (!prev) return prev;
-          return {
-            ...prev,
-            items: [...prev.items, currentItem]
-          };
-        });
-        console.error("Erreur lors de la suppression de l'item :", error);
       });
+
+      if (!response.ok) {
+        throw new Error(`Erreur HTTP! Statut: ${response.status}`);
+      }
+
+      const data = await response.json();
+      if (!data.result) {
+        throw new Error('La suppression a échoué côté serveur');
+      }
+
+      // Mise à jour optimiste
+      setListDetails(prev => {
+        if (!prev) return null;
+        return {
+          ...prev,
+          items: prev.items.filter(item => item.item !== itemName)
+        };
+      });
+    } catch (error) {
+      Alert.alert('Erreur', 'Une erreur est survenue lors de la suppression de l\'élément.');
+      console.error(error);
+    }
   };
 
-  const handleToggleChange = (itemName: string, newValue: boolean) => {
+  const handleToggleChange = async (itemName: string, newValue: boolean) => {
     if (!listDetails) return;
 
-    // Trouver l'item actuel par son nom
     const currentItem = listDetails.items.find(item => item.item === itemName);
     if (!currentItem) {
       console.error('Item not found:', itemName);
@@ -372,93 +302,67 @@ export default function List() {
 
     // Lecture du son en fonction de la valeur
     if (newValue) {
-      playSound('piece'); // Joue piece.wav si la valeur passe à true
+      playSound('piece');
     } else {
-      playSound('tuyau'); // Joue tuyau.wav si la valeur passe à false
+      playSound('tuyau');
     }
 
-    // Mise à jour optimiste de l'interface
-    setListDetails((prev) => {
-      if (!prev) return prev;
-      const updatedItems = [...prev.items];
-      const itemIndex = updatedItems.findIndex(item => item.item === itemName);
-      if (itemIndex !== -1) {
-        updatedItems[itemIndex] = {
-          ...updatedItems[itemIndex],
+    try {
+      const userSession = await AsyncStorage.getItem('userSession');
+      const { token } = JSON.parse(userSession || '{}');
+      const response = await fetch(`${url}/list/item/update/${listDetails.name}/${userId}/${currentItem.item}`, {
+        method: 'PUT',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          item: currentItem.item,
           value: updatedValue
-        };
-      }
-      return {
-        ...prev,
-        items: updatedItems
-      };
-    });
-
-    AsyncStorage.getItem('userSession')
-      .then(userSession => {
-        const { token } = JSON.parse(userSession || '{}');
-        return fetch(`${url}/list/item/update/${listDetails.name}/${userId}/${currentItem.item}`, {
-          method: 'PUT',
-          headers: { 
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
-          },
-          body: JSON.stringify({
-            item: currentItem.item,
-            value: updatedValue
-          }),
-        });
-      })
-      .then((response) => {
-        if (!response.ok) {
-          throw new Error(`Erreur HTTP! Statut: ${response.status}`);
-        }
-        return response.json();
-      })
-      .then((data: { result: boolean }) => {
-        if (!data.result) {
-          // Si la mise à jour a échoué, restaurer l'état précédent
-          setListDetails((prev) => {
-            if (!prev) return prev;
-            const updatedItems = [...prev.items];
-            const itemIndex = updatedItems.findIndex(item => item.item === itemName);
-            if (itemIndex !== -1) {
-              updatedItems[itemIndex] = {
-                ...updatedItems[itemIndex],
-                value: newValue ? 'false' : 'true'
-              };
-            }
-            return {
-              ...prev,
-              items: updatedItems
-            };
-          });
-          console.error('La mise à jour a échoué côté serveur.');
-        }
-      })
-      .catch((error) => {
-        // En cas d'erreur, restaurer l'état précédent
-        setListDetails((prev) => {
-          if (!prev) return prev;
-          const updatedItems = [...prev.items];
-          const itemIndex = updatedItems.findIndex(item => item.item === itemName);
-          if (itemIndex !== -1) {
-            updatedItems[itemIndex] = {
-              ...updatedItems[itemIndex],
-              value: newValue ? 'false' : 'true'
-            };
-          }
-          return {
-            ...prev,
-            items: updatedItems
-          };
-        });
-        console.error("Erreur lors de la modification de l'item :", error);
+        }),
       });
+
+      if (!response.ok) {
+        throw new Error(`Erreur HTTP! Statut: ${response.status}`);
+      }
+
+      const data = await response.json();
+      if (!data.result) {
+        throw new Error('La mise à jour a échoué côté serveur');
+      }
+
+      // Mise à jour optimiste
+      setListDetails(prev => {
+        if (!prev) return null;
+        return {
+          ...prev,
+          items: prev.items.map(item => 
+            item.item === itemName 
+              ? { ...item, value: updatedValue }
+              : item
+          )
+        };
+      });
+    } catch (error) {
+      Alert.alert('Erreur', 'Une erreur est survenue lors de la modification de l\'élément.');
+      console.error(error);
+    }
   };
 
   const toggleSound = () => {
     setIsSoundOn((prev) => !prev); // Inverse l'état actuel
+  };
+
+  const playSound = async (soundFile: string) => {
+    if (!isSoundOn) return; // Ne joue aucun son si le son est désactivé
+
+    const soundPath =
+      soundFile === 'piece'
+        ? require('@/assets/sounds/piece.wav')
+        : require('@/assets/sounds/tuyau.wav');
+
+    const { sound } = await Audio.Sound.createAsync(soundPath);
+    await sound.playAsync();
   };
 
   const renderItem = ({ item }: { item: Item }) => (
@@ -584,18 +488,13 @@ export default function List() {
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <Stack.Screen options={{ headerShown: false }} />
       <View style={styles.headerContainer}>
-        {/* Bouton Retour */}
         <TouchableOpacity onPress={handleReturn} style={styles.iconLeft}>
           <Image
             source={require('@/assets/images/design/back.png')}
-            style={[
-              styles.icon,
-              { tintColor: colors.police, marginBottom: 20 },
-            ]}
+            style={[styles.icon, { tintColor: colors.police, marginBottom: 20 }]}
           />
         </TouchableOpacity>
 
-        {/* Bouton Son */}
         <TouchableOpacity onPress={toggleSound} style={styles.iconRight}>
           <Image
             source={
@@ -603,10 +502,7 @@ export default function List() {
                 ? require('@/assets/images/design/soundon.png')
                 : require('@/assets/images/design/soundoff.png')
             }
-            style={[
-              styles.icon,
-              { tintColor: colors.police, marginBottom: 20 },
-            ]}
+            style={[styles.icon, { tintColor: colors.police, marginBottom: 20 }]}
           />
         </TouchableOpacity>
       </View>
