@@ -4,16 +4,16 @@ import { Audio } from 'expo-av';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useState } from 'react';
 import {
-  Alert,
-  FlatList,
-  Image,
-  Modal,
-  Platform,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
+    Alert,
+    FlatList,
+    Image,
+    Modal,
+    Platform,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View,
 } from 'react-native';
 import Button from './components/Button';
 import { ThemedText } from './components/ThemedText';
@@ -369,6 +369,11 @@ export default function List() {
     <View key={item.item}>
       <TouchableOpacity
         style={[styles.itemContainer, { borderBottomColor: colors.separator }]}
+        onPress={() => {
+          if (item.type === 'toggle') {
+            handleToggleChange(item.item, item.value.toLowerCase() !== 'true');
+          }
+        }}
         onLongPress={() => {
           setEditingItemId(item.item);
           setEditedItemName(item.item);

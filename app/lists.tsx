@@ -316,19 +316,7 @@ export default function Lists() {
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <Stack.Screen options={{ headerShown: false }} />
-      <View style={styles.headerContainer}>
-        <TouchableOpacity
-          onPress={() => router.push('/')}
-          style={styles.iconLeft}
-        >
-          <Image
-            source={require('@/assets/images/design/back.png')}
-            style={[styles.icon, { tintColor: colors.police, marginBottom: 20 }]}
-          />
-        </TouchableOpacity>
-      </View>
-
-      <ThemedText variant="subtitle1" color="police">
+      <ThemedText variant="subtitle1" color="police" style={styles.title}>
         Mes listes
       </ThemedText>
       <Button onPress={showAddModal} name={'+ Ajouter une liste'} />
@@ -380,7 +368,17 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     padding: 20,
-    paddingTop: Platform.OS === 'ios' ? 60 : 40,
+    paddingTop: Platform.OS === 'ios' ? 180 : 160,
+  },
+  contentContainer: {
+    flex: 1,
+    marginTop: 20,
+  },
+  title: {
+    marginBottom: 20,
+  },
+  addButton: {
+    marginTop: 20,
   },
   headerContainer: {
     flexDirection: 'row',
