@@ -1,34 +1,23 @@
 import { useThemeColors } from '@/hooks/useThemeColors';
+import { useItemsStore } from '@/src/store/itemsStore';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Audio } from 'expo-av';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
-    Alert,
-    FlatList,
-    Image,
-    Modal,
-    Platform,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  Alert,
+  FlatList,
+  Image,
+  Modal,
+  Platform,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 import Button from './components/Button';
 import { ThemedText } from './components/ThemedText';
-
-// Définir le type d'une liste et d'un item
-type ListItem = {
-  _id: string;
-  name: string;
-  items: {
-    _id: string;
-    item: string;
-    value: string;
-    type: 'text' | 'toggle';
-  }[];
-};
 
 type Item = {
   _id: string;
@@ -41,49 +30,21 @@ export default function List() {
   const { id, userId } = useLocalSearchParams<{ id: string; userId: string }>();
   const colors = useThemeColors();
   const url = 'http://192.168.1.183:3000';
-  const [listDetails, setListDetails] = useState<ListItem | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [editingItemId, setEditingItemId] = useState<string | null>(null);
-  const [editedItemName, setEditedItemName] = useState<string>('');
-  const [editedItemValue, setEditedItemValue] = useState<string>('');
   const router = useRouter();
   const [modalVisible, setModalVisible] = useState(false);
   const [newItemName, setNewItemName] = useState('');
   const [newItemType, setNewItemType] = useState<'text' | 'toggle'>('toggle');
+  const [editingItemId, setEditingItemId] = useState<string | null>(null);
+  const [editedItemName, setEditedItemName] = useState<string>('');
+  const [editedItemValue, setEditedItemValue] = useState<string>('');
   const [isSoundOn, setIsSoundOn] = useState(true);
 
-  const fetchListDetails = useCallback(async () => {
-    try {
-      setIsLoading(true);
-      setError(null);
-      const userSession = await AsyncStorage.getItem('userSession');
-      const { token } = JSON.parse(userSession || '{}');
-      const response = await fetch(`${url}/list/${id}/${userId}`, {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      });
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-      const data = await response.json();
-      if (!data.list) {
-        throw new Error('No list data received');
-      }
-      const sortedList = { ...data.list };
-      sortedList.items.sort((a: Item, b: Item) => a.item.localeCompare(b.item));
-      setListDetails(sortedList);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Une erreur est survenue');
-    } finally {
-      setIsLoading(false);
-    }
-  }, [id, userId]);
+  // Utilisation du store
+  const { listDetails, isLoading, error, fetchListDetails, addItem, updateItem, deleteItem, toggleItem } = useItemsStore();
 
   useEffect(() => {
-    fetchListDetails();
-  }, [fetchListDetails]);
+    fetchListDetails(id, userId);
+  }, [id, userId, fetchListDetails]);
 
   const showAddModal = () => {
     setModalVisible(true);
@@ -120,7 +81,7 @@ export default function List() {
 
     const itemValue = newItemType === 'toggle' ? 'false' : 'à définir';
     const newItem = {
-      _id: Date.now().toString(), // ID temporaire
+      _id: Date.now().toString(),
       item: newItemName.trim(),
       value: itemValue,
       type: newItemType
@@ -151,12 +112,8 @@ export default function List() {
         throw new Error('L\'ajout a échoué côté serveur');
       }
 
-      // Mise à jour optimiste
-      setListDetails(prev => {
-        if (!prev) return null;
-        const updatedItems = [...prev.items, newItem].sort((a, b) => a.item.localeCompare(b.item));
-        return { ...prev, items: updatedItems };
-      });
+      // Mise à jour optimiste avec le store
+      addItem(newItem);
 
       hideAddModal();
     } catch (error) {
@@ -215,7 +172,7 @@ export default function List() {
         },
         body: JSON.stringify({
           item: updatedName,
-          value: updatedValue || currentItem.value,
+          value: currentItem.type === 'toggle' ? currentItem.value : updatedValue,
           type: currentItem.type
         }),
       });
@@ -229,16 +186,8 @@ export default function List() {
         throw new Error('La mise à jour a échoué côté serveur');
       }
 
-      // Mise à jour optimiste
-      setListDetails(prev => {
-        if (!prev) return null;
-        const updatedItems = prev.items.map(item => 
-          item.item === itemName 
-            ? { ...item, item: updatedName, value: updatedValue || item.value }
-            : item
-        ).sort((a, b) => a.item.localeCompare(b.item));
-        return { ...prev, items: updatedItems };
-      });
+      // Mise à jour optimiste avec le store
+      updateItem(itemName, updatedName, currentItem.type === 'toggle' ? currentItem.value : updatedValue);
 
       setEditingItemId(null);
     } catch (error) {
@@ -275,14 +224,8 @@ export default function List() {
         throw new Error('La suppression a échoué côté serveur');
       }
 
-      // Mise à jour optimiste
-      setListDetails(prev => {
-        if (!prev) return null;
-        return {
-          ...prev,
-          items: prev.items.filter(item => item.item !== itemName)
-        };
-      });
+      // Mise à jour optimiste avec le store
+      deleteItem(itemName);
     } catch (error) {
       Alert.alert('Erreur', 'Une erreur est survenue lors de la suppression de l\'élément.');
       console.error(error);
@@ -297,8 +240,6 @@ export default function List() {
       console.error('Item not found:', itemName);
       return;
     }
-
-    const updatedValue = newValue ? 'true' : 'false';
 
     // Lecture du son en fonction de la valeur
     if (newValue) {
@@ -318,7 +259,7 @@ export default function List() {
         },
         body: JSON.stringify({
           item: currentItem.item,
-          value: updatedValue
+          value: newValue ? 'true' : 'false'
         }),
       });
 
@@ -331,18 +272,8 @@ export default function List() {
         throw new Error('La mise à jour a échoué côté serveur');
       }
 
-      // Mise à jour optimiste
-      setListDetails(prev => {
-        if (!prev) return null;
-        return {
-          ...prev,
-          items: prev.items.map(item => 
-            item.item === itemName 
-              ? { ...item, value: updatedValue }
-              : item
-          )
-        };
-      });
+      // Mise à jour optimiste avec le store
+      toggleItem(itemName, newValue);
     } catch (error) {
       Alert.alert('Erreur', 'Une erreur est survenue lors de la modification de l\'élément.');
       console.error(error);
@@ -350,11 +281,11 @@ export default function List() {
   };
 
   const toggleSound = () => {
-    setIsSoundOn((prev) => !prev); // Inverse l'état actuel
+    setIsSoundOn((prev) => !prev);
   };
 
   const playSound = async (soundFile: string) => {
-    if (!isSoundOn) return; // Ne joue aucun son si le son est désactivé
+    if (!isSoundOn) return;
 
     const soundPath =
       soundFile === 'piece'
@@ -476,7 +407,7 @@ export default function List() {
     return (
       <View style={[styles.container, { backgroundColor: colors.background, justifyContent: 'center', alignItems: 'center' }]}>
         <ThemedText variant="body1" color="police">{error}</ThemedText>
-        <Button onPress={fetchListDetails} name="Réessayer" />
+        <Button onPress={() => fetchListDetails(id, userId)} name="Réessayer" />
       </View>
     );
   }

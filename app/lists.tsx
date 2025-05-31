@@ -1,7 +1,8 @@
 import { useThemeColors } from '@/hooks/useThemeColors';
+import { useListsStore } from '@/src/store/listsStore';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Alert,
   FlatList,
@@ -32,45 +33,18 @@ export default function Lists() {
   const { userId } = useLocalSearchParams<{ userId: string }>();
   const colors = useThemeColors();
   const url = 'http://192.168.1.183:3000';
-  const [lists, setLists] = useState<List[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const router = useRouter();
   const [modalVisible, setModalVisible] = useState(false);
   const [newListName, setNewListName] = useState('');
   const [editingListId, setEditingListId] = useState<string | null>(null);
   const [editedListName, setEditedListName] = useState<string>('');
 
-  const fetchLists = useCallback(async () => {
-    try {
-      setIsLoading(true);
-      setError(null);
-      const userSession = await AsyncStorage.getItem('userSession');
-      const { token } = JSON.parse(userSession || '{}');
-      const response = await fetch(`${url}/list/all/${userId}`, {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      });
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-      const data = await response.json();
-      if (!data.lists) {
-        throw new Error('No lists data received');
-      }
-      const sortedLists = data.lists.sort((a: List, b: List) => a.name.localeCompare(b.name));
-      setLists(sortedLists);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Une erreur est survenue');
-    } finally {
-      setIsLoading(false);
-    }
-  }, [userId]);
+  // Utilisation du store
+  const { lists, isLoading, error, fetchLists, addList, deleteList, editList } = useListsStore();
 
   useEffect(() => {
-    fetchLists();
-  }, [fetchLists]);
+    fetchLists(userId);
+  }, [userId, fetchLists]);
 
   const showAddModal = () => {
     setModalVisible(true);
@@ -124,15 +98,13 @@ export default function Lists() {
         throw new Error('L\'ajout a échoué côté serveur');
       }
 
-      // Mise à jour optimiste
-      setLists(prev => {
-        const newList = {
-          _id: Date.now().toString(), // ID temporaire
-          name: newListName.trim(),
-          items: []
-        };
-        return [...prev, newList].sort((a, b) => a.name.localeCompare(b.name));
-      });
+      // Mise à jour optimiste avec le store
+      const newList = {
+        _id: Date.now().toString(),
+        name: newListName.trim(),
+        items: []
+      };
+      addList(newList);
 
       hideAddModal();
     } catch (error) {
@@ -165,8 +137,8 @@ export default function Lists() {
         throw new Error('La suppression a échoué côté serveur');
       }
 
-      // Mise à jour optimiste
-      setLists(prev => prev.filter(list => list.name !== listName));
+      // Mise à jour optimiste avec le store
+      deleteList(listToDelete._id);
     } catch (error) {
       Alert.alert('Erreur', 'Une erreur est survenue lors de la suppression de la liste.');
       console.error(error);
@@ -219,12 +191,8 @@ export default function Lists() {
         throw new Error('La mise à jour a échoué côté serveur');
       }
 
-      // Mise à jour optimiste
-      setLists(prev => prev.map(list => 
-        list.name === oldName 
-          ? { ...list, name: newName.trim() }
-          : list
-      ).sort((a, b) => a.name.localeCompare(b.name)));
+      // Mise à jour optimiste avec le store
+      editList(listToEdit._id, newName.trim());
 
       setEditingListId(null);
     } catch (error) {
@@ -308,7 +276,7 @@ export default function Lists() {
     return (
       <View style={[styles.container, { backgroundColor: colors.background, justifyContent: 'center', alignItems: 'center' }]}>
         <ThemedText variant="body1" color="police">{error}</ThemedText>
-        <Button onPress={fetchLists} name="Réessayer" />
+        <Button onPress={() => fetchLists(userId)} name="Réessayer" />
       </View>
     );
   }
@@ -368,7 +336,7 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     padding: 20,
-    paddingTop: Platform.OS === 'ios' ? 180 : 160,
+    paddingTop: Platform.OS === 'ios' ? 160 : 140,
   },
   contentContainer: {
     flex: 1,

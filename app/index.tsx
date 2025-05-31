@@ -104,6 +104,12 @@ export default function Index() {
         Toutes mes notes!
       </ThemedText>
 
+      {/* Bouton pour changer de mode */}
+      <Button
+        onPress={toggleMode}
+        name={isSignUpMode ? "Connexion" : "Inscription"}
+      ></Button>
+
       <View style={styles.inputs}>
       {/* Champ pour le nom d'utilisateur */}
       <Input
@@ -134,12 +140,6 @@ export default function Index() {
         onChangeText={setPassword}
       />
       </View>
-
-      {/* Bouton pour changer de mode */}
-      <Button
-        onPress={toggleMode}
-        name={isSignUpMode ? "Connexion" : "Inscription"}
-      ></Button>
 
       {/* Bouton principal (change selon le mode) */}
       <Button
