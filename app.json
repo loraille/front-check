@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "CheckL",
+    "name": "checkl",
     "slug": "CheckL",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -16,7 +16,9 @@
         "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#000000"
       },
-      "edgeToEdgeEnabled": true
+      "edgeToEdgeEnabled": true,
+      "package": "com.checkl.app",
+      "versionCode": 1
     },
     "web": {
       "bundler": "metro",
@@ -33,12 +35,16 @@
           "resizeMode": "contain",
           "backgroundColor": "#000000"
         }
-      ],
-      "expo-audio",
-      "expo-video"
+      ]
     ],
     "experiments": {
       "typedRoutes": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "43566746-51cb-4ada-8c56-e5e4720d0b45"
+      }
     }
   }
 }

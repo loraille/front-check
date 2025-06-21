@@ -1,7 +1,7 @@
 import { useThemeColors } from "@/hooks/useThemeColors";
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from "expo-router"; // Pour gérer la navigation
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { StyleSheet, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import Button from "./components/Button";
@@ -15,7 +15,26 @@ export default function Index() {
   const [isSignUpMode, setIsSignUpMode] = useState<boolean>(false); // Mode par défaut : Inscription
   const colors = useThemeColors();
   const router = useRouter(); // Utilisé pour naviguer vers d'autres écrans
-  const url = 'http://192.168.1.183:3000';
+  const url = 'https://bckcklist.vercel.app';
+
+  const checkExistingSession = useCallback(async () => {
+    try {
+      const userSession = await AsyncStorage.getItem('userSession');
+      if (userSession) {
+        const { userId, username } = JSON.parse(userSession);
+        router.replace({
+          pathname: '/lists',
+          params: { userId, username }
+        });
+      }
+    } catch (error) {
+      console.error('Erreur lors de la vérification de la session:', error);
+    }
+  }, [router]);
+
+  useEffect(() => {
+    checkExistingSession();
+  }, [checkExistingSession]);
 
   const handleSignUp = async () => {
     try {

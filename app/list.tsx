@@ -1,15 +1,15 @@
 import { useThemeColors } from '@/hooks/useThemeColors';
-import { useItemsStore } from '@/src/store/itemsStore';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Audio } from 'expo-av';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
-import React, { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   Alert,
   FlatList,
   Image,
   Modal,
   Platform,
+  SafeAreaView,
   StyleSheet,
   Text,
   TextInput,
@@ -26,10 +26,16 @@ type Item = {
   type: 'text' | 'toggle';
 };
 
+type ListDetails = {
+  _id: string;
+  name: string;
+  items: Item[];
+};
+
 export default function List() {
   const { id, userId } = useLocalSearchParams<{ id: string; userId: string }>();
   const colors = useThemeColors();
-  const url = 'http://192.168.1.183:3000';
+  const url = 'https://bckcklist.vercel.app';
   const router = useRouter();
   const [modalVisible, setModalVisible] = useState(false);
   const [newItemName, setNewItemName] = useState('');
@@ -38,12 +44,50 @@ export default function List() {
   const [editedItemName, setEditedItemName] = useState<string>('');
   const [editedItemValue, setEditedItemValue] = useState<string>('');
   const [isSoundOn, setIsSoundOn] = useState(true);
+  const [listDetails, setListDetails] = useState<ListDetails | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  // Utilisation du store
-  const { listDetails, isLoading, error, fetchListDetails, addItem, updateItem, deleteItem, toggleItem } = useItemsStore();
+  const fetchListDetails = useCallback(async () => {
+    try {
+      setIsLoading(true);
+      setError(null);
+      const userSession = await AsyncStorage.getItem('userSession');
+      const { token } = JSON.parse(userSession || '{}');
+      const encodedListName = encodeURIComponent(id);
+      const response = await fetch(`${url}/list/${encodedListName}/${userId}`, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error(`Erreur HTTP! Statut: ${response.status}`);
+      }
+
+      const data = await response.json();
+      if (!data.result) {
+        throw new Error('Erreur lors de la récupération des données');
+      }
+
+      // Trier les items par ordre alphabétique
+      const sortedList = {
+        ...data.list,
+        items: data.list.items.sort((a: Item, b: Item) => 
+          a.item.localeCompare(b.item, 'fr', { sensitivity: 'base' })
+        )
+      };
+
+      setListDetails(sortedList);
+    } catch (error) {
+      setError(error instanceof Error ? error.message : 'Une erreur est survenue');
+    } finally {
+      setIsLoading(false);
+    }
+  }, [id, userId]);
 
   useEffect(() => {
-    fetchListDetails(id, userId);
+    fetchListDetails();
   }, [id, userId, fetchListDetails]);
 
   const showAddModal = () => {
@@ -79,27 +123,20 @@ export default function List() {
       return;
     }
 
-    const itemValue = newItemType === 'toggle' ? 'false' : 'à définir';
-    const newItem = {
-      _id: Date.now().toString(),
-      item: newItemName.trim(),
-      value: itemValue,
-      type: newItemType
-    };
-
     try {
       const userSession = await AsyncStorage.getItem('userSession');
       const { token } = JSON.parse(userSession || '{}');
-      const response = await fetch(`${url}/list/add/item/${listDetails.name}/${userId}`, {
+      const encodedListName = encodeURIComponent(listDetails.name);
+      const response = await fetch(`${url}/list/add/item/${encodedListName}/${userId}`, {
         method: 'POST',
         headers: { 
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
         body: JSON.stringify({
-          item: newItem.item.toLowerCase(),
-          value: newItem.value,
-          type: newItem.type
+          item: newItemName.trim().toLowerCase(),
+          value: newItemType === 'toggle' ? 'false' : 'à définir',
+          type: newItemType
         }),
       });
 
@@ -112,10 +149,8 @@ export default function List() {
         throw new Error('L\'ajout a échoué côté serveur');
       }
 
-      // Mise à jour optimiste avec le store
-      addItem(newItem);
-
       hideAddModal();
+      await fetchListDetails();
     } catch (error) {
       Alert.alert('Erreur', 'Une erreur est survenue lors de l\'ajout de l\'élément.');
       console.error(error);
@@ -164,7 +199,9 @@ export default function List() {
     try {
       const userSession = await AsyncStorage.getItem('userSession');
       const { token } = JSON.parse(userSession || '{}');
-      const response = await fetch(`${url}/list/item/update/${listDetails.name}/${userId}/${currentItem.item}`, {
+      const encodedListName = encodeURIComponent(listDetails.name);
+      const encodedItemName = encodeURIComponent(currentItem.item);
+      const response = await fetch(`${url}/list/item/update/${encodedListName}/${userId}/${encodedItemName}`, {
         method: 'PUT',
         headers: { 
           'Content-Type': 'application/json',
@@ -186,10 +223,11 @@ export default function List() {
         throw new Error('La mise à jour a échoué côté serveur');
       }
 
-      // Mise à jour optimiste avec le store
-      updateItem(itemName, updatedName, currentItem.type === 'toggle' ? currentItem.value : updatedValue);
-
+      // Fermer l'édition avant le rechargement
       setEditingItemId(null);
+      
+      // Recharger les données depuis le serveur
+      await fetchListDetails();
     } catch (error) {
       Alert.alert('Erreur', 'Une erreur est survenue lors de la modification de l\'élément.');
       console.error(error);
@@ -208,7 +246,9 @@ export default function List() {
     try {
       const userSession = await AsyncStorage.getItem('userSession');
       const { token } = JSON.parse(userSession || '{}');
-      const response = await fetch(`${url}/list/item/delete/${listDetails.name}/${userId}/${currentItem.item}`, {
+      const encodedListName = encodeURIComponent(listDetails.name);
+      const encodedItemName = encodeURIComponent(currentItem.item);
+      const response = await fetch(`${url}/list/item/delete/${encodedListName}/${userId}/${encodedItemName}`, {
         method: 'DELETE',
         headers: {
           'Authorization': `Bearer ${token}`
@@ -224,8 +264,8 @@ export default function List() {
         throw new Error('La suppression a échoué côté serveur');
       }
 
-      // Mise à jour optimiste avec le store
-      deleteItem(itemName);
+      // Recharger les données depuis le serveur
+      await fetchListDetails();
     } catch (error) {
       Alert.alert('Erreur', 'Une erreur est survenue lors de la suppression de l\'élément.');
       console.error(error);
@@ -248,10 +288,25 @@ export default function List() {
       playSound('tuyau');
     }
 
+    // Mise à jour optimiste de l'état local
+    setListDetails(prev => {
+      if (!prev) return null;
+      return {
+        ...prev,
+        items: prev.items.map(item =>
+          item.item === itemName
+            ? { ...item, value: newValue ? 'true' : 'false' }
+            : item
+        )
+      };
+    });
+
     try {
       const userSession = await AsyncStorage.getItem('userSession');
       const { token } = JSON.parse(userSession || '{}');
-      const response = await fetch(`${url}/list/item/update/${listDetails.name}/${userId}/${currentItem.item}`, {
+      const encodedListName = encodeURIComponent(listDetails.name);
+      const encodedItemName = encodeURIComponent(currentItem.item);
+      const response = await fetch(`${url}/list/item/update/${encodedListName}/${userId}/${encodedItemName}`, {
         method: 'PUT',
         headers: { 
           'Content-Type': 'application/json',
@@ -271,10 +326,9 @@ export default function List() {
       if (!data.result) {
         throw new Error('La mise à jour a échoué côté serveur');
       }
-
-      // Mise à jour optimiste avec le store
-      toggleItem(itemName, newValue);
     } catch (error) {
+      // En cas d'erreur, on recharge la liste pour revenir à l'état correct
+      await fetchListDetails();
       Alert.alert('Erreur', 'Une erreur est survenue lors de la modification de l\'élément.');
       console.error(error);
     }
@@ -297,7 +351,7 @@ export default function List() {
   };
 
   const renderItem = ({ item }: { item: Item }) => (
-    <View key={item.item}>
+    <View>
       <TouchableOpacity
         style={[styles.itemContainer, { borderBottomColor: colors.separator }]}
         onPress={() => {
@@ -407,7 +461,7 @@ export default function List() {
     return (
       <View style={[styles.container, { backgroundColor: colors.background, justifyContent: 'center', alignItems: 'center' }]}>
         <ThemedText variant="body1" color="police">{error}</ThemedText>
-        <Button onPress={() => fetchListDetails(id, userId)} name="Réessayer" />
+        <Button onPress={() => fetchListDetails()} name="Réessayer" />
       </View>
     );
   }
@@ -421,114 +475,119 @@ export default function List() {
   }
 
   return (
-    <View style={[styles.container, { backgroundColor: colors.background }]}>
-      <Stack.Screen options={{ headerShown: false }} />
-      <View style={styles.headerContainer}>
-        <TouchableOpacity onPress={handleReturn} style={styles.iconLeft}>
-          <Image
-            source={require('@/assets/images/design/back.png')}
-            style={[styles.icon, { tintColor: colors.police, marginBottom: 20 }]}
-          />
-        </TouchableOpacity>
-
-        <TouchableOpacity onPress={toggleSound} style={styles.iconRight}>
-          <Image
-            source={
-              isSoundOn
-                ? require('@/assets/images/design/soundon.png')
-                : require('@/assets/images/design/soundoff.png')
-            }
-            style={[styles.icon, { tintColor: colors.police, marginBottom: 20 }]}
-          />
-        </TouchableOpacity>
-      </View>
-
-      <ThemedText variant="subtitle1" color="police">
-        Détail de la liste
-      </ThemedText>
-      <View style={styles.listName}>
-        <ThemedText variant="headline" color="police">
-          {listDetails.name}
-        </ThemedText>
-      </View>
-      <Button onPress={showAddModal} name={'+ Ajouter un élément'} />
-      <FlatList
-        data={listDetails.items}
-        renderItem={renderItem}
-        keyExtractor={(item) => item.item}
-        contentContainerStyle={styles.listContainer}
-        ListEmptyComponent={
-          <Text style={styles.emptyText}>Aucun élément trouvé.</Text>
-        }
-      />
-      <Modal
-        visible={modalVisible}
-        transparent
-        animationType="slide"
-        onRequestClose={hideAddModal}
-      >
-        <View style={styles.modalContainer}>
-          <View
-            style={[
-              styles.modalContent,
-              {
-                backgroundColor: colors.background,
-                borderColor: colors.border,
-              },
-            ]}
-          >
-            <TextInput
-              placeholder="Nom de l'item"
-              placeholderTextColor={colors.placeHolder}
-              value={newItemName}
-              onChangeText={setNewItemName}
-              style={[
-                styles.modalInput,
-                { color: colors.police, borderColor: colors.police },
-              ]}
+    <SafeAreaView style={[styles.safeArea, { backgroundColor: colors.background }]}>
+      <View style={[styles.container, { backgroundColor: colors.background }]}>
+        <Stack.Screen options={{ headerShown: false }} />
+        <View style={styles.headerContainer}>
+          <TouchableOpacity onPress={handleReturn} style={styles.iconLeft}>
+            <Image
+              source={require('@/assets/images/design/back.png')}
+              style={[styles.icon, { tintColor: colors.police, marginBottom: 20 }]}
             />
-            <View style={styles.imageContainer}>
-              <TouchableOpacity
-                onPress={() => setNewItemType('toggle')}
-                style={styles.imageButton}
-              >
-                <Image
-                  source={require('@/assets/images/design/check.png')}
-                  style={[
-                    styles.image,
-                    { tintColor: colors.police },
-                    newItemType === 'toggle' && styles.selectedImage,
-                  ]}
-                />
-              </TouchableOpacity>
-              <TouchableOpacity
-                onPress={() => setNewItemType('text')}
-                style={styles.imageButton}
-              >
-                <Image
-                  source={require('@/assets/images/design/text.png')}
-                  style={[
-                    styles.image,
-                    { tintColor: colors.police },
-                    newItemType === 'text' && styles.selectedImage,
-                  ]}
-                />
-              </TouchableOpacity>
-            </View>
-            <Button onPress={handleAddItem} name="Ajouter" />
-            <Button onPress={hideAddModal} name="Annuler" />
-          </View>
+          </TouchableOpacity>
+
+          <TouchableOpacity onPress={toggleSound} style={styles.iconRight}>
+            <Image
+              source={
+                isSoundOn
+                  ? require('@/assets/images/design/soundon.png')
+                  : require('@/assets/images/design/soundoff.png')
+              }
+              style={[styles.icon, { tintColor: colors.police, marginBottom: 20 }]}
+            />
+          </TouchableOpacity>
         </View>
-      </Modal>
-    </View>
+
+        <ThemedText variant="subtitle1" color="police">
+          Détail de la liste
+        </ThemedText>
+        <View style={styles.listName}>
+          <ThemedText variant="headline" color="police">
+            {listDetails.name}
+          </ThemedText>
+        </View>
+        <Button onPress={showAddModal} name={'+ Ajouter un élément'} />
+        <FlatList
+          data={listDetails.items}
+          renderItem={renderItem}
+          keyExtractor={(item) => item.item}
+          contentContainerStyle={[styles.listContainer, { paddingBottom: Platform.OS === 'ios' ? 100 : 80 }]}
+          ListEmptyComponent={
+            <Text style={styles.emptyText}>Aucun élément trouvé.</Text>
+          }
+        />
+        <Modal
+          visible={modalVisible}
+          transparent
+          animationType="slide"
+          onRequestClose={hideAddModal}
+        >
+          <View style={styles.modalContainer}>
+            <View
+              style={[
+                styles.modalContent,
+                {
+                  backgroundColor: colors.background,
+                  borderColor: colors.border,
+                },
+              ]}
+            >
+              <TextInput
+                placeholder="Nom de l'item"
+                placeholderTextColor={colors.placeHolder}
+                value={newItemName}
+                onChangeText={setNewItemName}
+                style={[
+                  styles.modalInput,
+                  { color: colors.police, borderColor: colors.police },
+                ]}
+              />
+              <View style={styles.imageContainer}>
+                <TouchableOpacity
+                  onPress={() => setNewItemType('toggle')}
+                  style={styles.imageButton}
+                >
+                  <Image
+                    source={require('@/assets/images/design/check.png')}
+                    style={[
+                      styles.image,
+                      { tintColor: colors.police },
+                      newItemType === 'toggle' && styles.selectedImage,
+                    ]}
+                  />
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={() => setNewItemType('text')}
+                  style={styles.imageButton}
+                >
+                  <Image
+                    source={require('@/assets/images/design/text.png')}
+                    style={[
+                      styles.image,
+                      { tintColor: colors.police },
+                      newItemType === 'text' && styles.selectedImage,
+                    ]}
+                  />
+                </TouchableOpacity>
+              </View>
+              <Button onPress={handleAddItem} name="Ajouter" />
+              <Button onPress={hideAddModal} name="Annuler" />
+            </View>
+          </View>
+        </Modal>
+      </View>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
+  safeArea: {
+    flex: 1,
+  },
   container: {
     flex: 1,
     padding: 20,
-    paddingTop: Platform.OS === 'ios' ? 60 : 40,
+    paddingTop: Platform.OS === 'ios' ? 40 : 30,
   },
   headerContainer: {
     flexDirection: 'row',
@@ -538,9 +597,11 @@ const styles = StyleSheet.create({
   },
   iconLeft: {
     alignSelf: 'flex-start',
+    padding: 10,
   },
   iconRight: {
     alignSelf: 'flex-end',
+    padding: 10,
   },
   listName: {
     margin: 20,
@@ -582,7 +643,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     paddingHorizontal: 20,
-    paddingVertical: 10,
+    paddingVertical: 15,
+    marginBottom: 20,
+    backgroundColor: 'transparent',
   },
   icon: {
     width: 24,
@@ -632,5 +695,16 @@ const styles = StyleSheet.create({
   },
   selectedImage: {
     opacity: 1,
+  },
+  swipeAction: {
+    justifyContent: 'center',
+    alignItems: 'center',
+    width: 100,
+    height: '100%',
+  },
+  swipeActionText: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: 'bold',
   },
 });

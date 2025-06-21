@@ -1,8 +1,7 @@
 import { useThemeColors } from '@/hooks/useThemeColors';
-import { useListsStore } from '@/src/store/listsStore';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   Alert,
   FlatList,
@@ -32,18 +31,53 @@ type List = {
 export default function Lists() {
   const { userId } = useLocalSearchParams<{ userId: string }>();
   const colors = useThemeColors();
-  const url = 'http://192.168.1.183:3000';
+  const url = 'https://bckcklist.vercel.app';
   const router = useRouter();
   const [modalVisible, setModalVisible] = useState(false);
   const [newListName, setNewListName] = useState('');
   const [editingListId, setEditingListId] = useState<string | null>(null);
   const [editedListName, setEditedListName] = useState<string>('');
+  const [lists, setLists] = useState<List[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  // Utilisation du store
-  const { lists, isLoading, error, fetchLists, addList, deleteList, editList } = useListsStore();
+  const fetchLists = useCallback(async () => {
+    try {
+      setIsLoading(true);
+      setError(null);
+      const userSession = await AsyncStorage.getItem('userSession');
+      const { token } = JSON.parse(userSession || '{}');
+      const response = await fetch(`${url}/list/all/${userId}`, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error(`Erreur HTTP! Statut: ${response.status}`);
+      }
+
+      const data = await response.json();
+      if (!data.result) {
+        throw new Error('Erreur lors de la récupération des données');
+      }
+
+      // Trier les listes et leurs items par ordre alphabétique
+      const sortedLists = data.lists.map((list: List) => ({
+        ...list,
+        items: list.items.sort((a, b) => a.item.localeCompare(b.item))
+      })).sort((a: List, b: List) => a.name.localeCompare(b.name));
+
+      setLists(sortedLists);
+    } catch (error) {
+      setError(error instanceof Error ? error.message : 'Une erreur est survenue');
+    } finally {
+      setIsLoading(false);
+    }
+  }, [userId]);
 
   useEffect(() => {
-    fetchLists(userId);
+    fetchLists();
   }, [userId, fetchLists]);
 
   const showAddModal = () => {
@@ -98,15 +132,8 @@ export default function Lists() {
         throw new Error('L\'ajout a échoué côté serveur');
       }
 
-      // Mise à jour optimiste avec le store
-      const newList = {
-        _id: Date.now().toString(),
-        name: newListName.trim(),
-        items: []
-      };
-      addList(newList);
-
       hideAddModal();
+      await fetchLists();
     } catch (error) {
       Alert.alert('Erreur', 'Une erreur est survenue lors de l\'ajout de la liste.');
       console.error(error);
@@ -121,7 +148,8 @@ export default function Lists() {
       }
       const userSession = await AsyncStorage.getItem('userSession');
       const { token } = JSON.parse(userSession || '{}');
-      const response = await fetch(`${url}/list/${listToDelete.name}/${userId}`, {
+      const encodedListName = encodeURIComponent(listToDelete.name);
+      const response = await fetch(`${url}/list/${encodedListName}/${userId}`, {
         method: 'DELETE',
         headers: {
           'Authorization': `Bearer ${token}`
@@ -138,7 +166,7 @@ export default function Lists() {
       }
 
       // Mise à jour optimiste avec le store
-      deleteList(listToDelete._id);
+      setLists(lists.filter(list => list.name !== listName));
     } catch (error) {
       Alert.alert('Erreur', 'Une erreur est survenue lors de la suppression de la liste.');
       console.error(error);
@@ -171,7 +199,8 @@ export default function Lists() {
       if (!listToEdit) {
         throw new Error('Liste non trouvée');
       }
-      const response = await fetch(`${url}/list/name/${oldName}/${userId}`, {
+      const encodedOldName = encodeURIComponent(oldName);
+      const response = await fetch(`${url}/list/name/${encodedOldName}/${userId}`, {
         method: 'PUT',
         headers: { 
           'Content-Type': 'application/json',
@@ -192,7 +221,9 @@ export default function Lists() {
       }
 
       // Mise à jour optimiste avec le store
-      editList(listToEdit._id, newName.trim());
+      setLists(lists.map(list =>
+        list.name === oldName ? { ...list, name: newName.trim() } : list
+      ));
 
       setEditingListId(null);
     } catch (error) {
@@ -209,7 +240,7 @@ export default function Lists() {
   };
 
   const renderItem = ({ item }: { item: List }) => (
-    <View key={item.name}>
+    <View>
       <TouchableOpacity
         style={[styles.itemContainer, { borderBottomColor: colors.separator }]}
         onPress={() => navigateToList(item._id, item.name)}
@@ -276,7 +307,7 @@ export default function Lists() {
     return (
       <View style={[styles.container, { backgroundColor: colors.background, justifyContent: 'center', alignItems: 'center' }]}>
         <ThemedText variant="body1" color="police">{error}</ThemedText>
-        <Button onPress={() => fetchLists(userId)} name="Réessayer" />
+        <Button onPress={() => fetchLists()} name="Réessayer" />
       </View>
     );
   }
@@ -287,6 +318,7 @@ export default function Lists() {
       <ThemedText variant="subtitle1" color="police" style={styles.title}>
         Mes listes
       </ThemedText>
+      <Button onPress={fetchLists} name="Actualiser listes" />
       <Button onPress={showAddModal} name={'+ Ajouter une liste'} />
       <FlatList
         data={lists}
@@ -338,28 +370,12 @@ const styles = StyleSheet.create({
     padding: 20,
     paddingTop: Platform.OS === 'ios' ? 160 : 140,
   },
-  contentContainer: {
-    flex: 1,
-    marginTop: 20,
-  },
   title: {
     marginBottom: 20,
   },
-  addButton: {
+  listContainer: {
+    flexGrow: 1,
     marginTop: 20,
-  },
-  headerContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 10,
-  },
-  iconLeft: {
-    alignSelf: 'flex-start',
-  },
-  icon: {
-    width: 24,
-    height: 24,
   },
   itemContainer: {
     flexDirection: 'row',
@@ -376,15 +392,34 @@ const styles = StyleSheet.create({
     fontSize: 14,
     marginLeft: 10,
   },
+  editInput: {
+    fontSize: 16,
+    padding: 5,
+    borderWidth: 1,
+    borderRadius: 5,
+    flex: 1,
+  },
+  iconsContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+  },
+  icon: {
+    width: 24,
+    height: 24,
+  },
+  iconLeft: {
+    alignSelf: 'flex-start',
+  },
+  iconRight: {
+    alignSelf: 'flex-end',
+  },
   emptyText: {
     textAlign: 'center',
     marginTop: 20,
     fontSize: 16,
     color: '#888',
-  },
-  listContainer: {
-    flexGrow: 1,
-    marginTop: 20,
   },
   modalContainer: {
     flex: 1,
@@ -405,20 +440,5 @@ const styles = StyleSheet.create({
     padding: 10,
     marginBottom: 15,
   },
-  editInput: {
-    fontSize: 16,
-    padding: 5,
-    borderWidth: 1,
-    borderRadius: 5,
-    flex: 1,
-  },
-  iconsContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-  },
-  iconRight: {
-    alignSelf: 'flex-end',
-  },
 });
+
