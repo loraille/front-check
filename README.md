@@ -1,50 +1,116 @@
-# Welcome to your Expo app 👋
+# 📝 Front Checklist
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+Application mobile de gestion de listes et d’items, développée avec **Expo (React Native)**.
 
-## Get started
+## Fonctionnalités principales
 
-1. Install dependencies
+- **Authentification** : Inscription et connexion sécurisées, gestion de session locale.
+- **Gestion des listes** :
+  - Création, édition, suppression, renommage de listes personnelles.
+  - Affichage des listes triées par ordre alphabétique.
+- **Gestion des items** :
+  - Ajout, édition, suppression d’items dans chaque liste.
+  - Deux types d’items : texte ou interrupteur (toggle).
+  - Tri automatique des items.
+- **Interface moderne** :
+  - Composants personnalisés (Input, Button, Toggle, etc.).
+  - Thématisation dynamique (couleurs, police, etc.).
+  - Utilisation d’icônes et de sons pour améliorer l’expérience utilisateur.
+- **Navigation** :
+  - Navigation fluide entre les écrans (accueil, listes, détail d’une liste).
+- **Connexion API** :
+  - Appels sécurisés à un backend Node.js (API REST, token JWT).
 
+---
+
+## Installation
+
+1. **Cloner le projet**
+   ```bash
+   git clone <repo-url>
+   cd front-checklist
+   ```
+2. **Installer les dépendances**
    ```bash
    npm install
    ```
-
-2. Start the app
-
+3. **Lancer l’application**
    ```bash
    npx expo start
    ```
 
-In the output, you'll find options to open the app in a
+> **Remarque :** L’application nécessite un backend compatible (voir la variable `url` dans les fichiers du dossier `app/`).
 
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
+---
 
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
+## Utilisation
 
-## Get a fresh project
+- **Accueil** :
+  - Inscription ou connexion avec nom d’utilisateur, email (pour inscription) et mot de passe.
+  - Redirection automatique vers la page des listes si la session est active.
+- **Listes** :
+  - Affichage de toutes les listes de l’utilisateur connecté.
+  - Ajout, édition, suppression, renommage de listes.
+- **Détail d’une liste** :
+  - Affichage et gestion des items (ajout, édition, suppression, type).
+  - Possibilité d’activer/désactiver un son lors des actions.
 
-When you're ready, run:
+---
 
-```bash
-npm run reset-project
+## Structure du projet
+
+```
+front-checklist/
+  app/                # Dossier principal de l’app (pages, composants, styles)
+    components/       # Composants UI réutilisables (Button, Input, Toggle...)
+    constants/        # Constantes (couleurs, etc.)
+    styles/           # Fichiers de styles
+    types/            # Types TypeScript personnalisés
+    index.tsx         # Page d’accueil (authentification)
+    lists.tsx         # Page de gestion des listes
+    list.tsx          # Page de gestion d’une liste et de ses items
+    _layout.tsx       # Layout général
+  assets/             # Images, icônes, sons
+  hooks/              # Hooks personnalisés (ex: useThemeColors)
+  src/store/          # Stores pour la gestion d’état (items, listes)
+  ...
 ```
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+---
 
-## Learn more
+## Points techniques
 
-To learn more about developing your project with Expo, look at the following resources:
+- **Expo Router** pour la navigation basée sur les fichiers.
+- **AsyncStorage** pour la gestion locale de la session utilisateur.
+- **Appels API** avec gestion du token JWT dans les headers.
+- **Gestion des erreurs** et affichage de messages utilisateur.
+- **Thématisation** via un hook personnalisé (`useThemeColors`).
+- **Accessibilité** : labels, placeholders, contrastes adaptés.
 
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
+---
 
-## Join the community
+## Configuration
 
-Join our community of developers creating universal apps.
+- Modifier l’URL du backend dans les fichiers `app/index.tsx`, `app/lists.tsx`, `app/list.tsx` si besoin.
+- Les assets (icônes, sons) sont dans le dossier `assets/`.
 
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+---
+
+## Dépendances principales
+
+- **React Native** (Expo)
+- **expo-router**
+- **@react-native-async-storage/async-storage**
+- **TypeScript**
+
+---
+
+## Auteur
+
+- Projet réalisé par [LR]
+
+---
+
+## Licence
+
+Ce projet est open-source, sous licence MIT.
